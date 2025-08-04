@@ -1,40 +1,59 @@
-import { createClient } from '@supabase/supabase-js';
+// 确保引入必要的模块
+const { createClient } = require('@supabase/supabase-js');
 
 // 初始化Supabase客户端（仅在后端使用）
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+const validPassword = process.env.PASSWORD;
 
-if (!supabaseUrl || !supabaseKey) {
-    throw new Error('请配置Supabase环境变量');
+// 确保环境变量配置正确
+if (!supabaseUrl || !supabaseKey || !validPassword) {
+    // 即使环境变量缺失，也返回明确错误
+    exports.default = async (req, res) => {
+        res.status(500).json({ 
+            success: false, 
+            error: '服务器配置不完整，请联系管理员' 
+        });
+    };
+    return;
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default async function handler(req, res) {
-    // 仅允许POST请求
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: '仅支持POST请求' });
-    }
-
-    const { password } = req.body;
-    const clientIp = req.headers.get('x-forwarded-for') || req.ip; // 获取用户IP
-    const validPassword = process.env.PASSWORD;
-
-    // 检查服务器是否配置密码
-    if (!validPassword) {
-        return res.status(500).json({ error: '服务器未配置密码' });
-    }
-
+// 主处理函数
+exports.default = async (req, res) => {
     try {
-        // 1. 检查该IP是否被锁定
+        // 1. 仅允许POST请求
+        if (req.method !== 'POST') {
+            return res.status(405).json({ 
+                success: false, 
+                error: '仅支持POST请求' 
+            });
+        }
+
+        // 2. 解析请求数据（处理可能的解析错误）
+        let { password } = req.body;
+        if (typeof password !== 'string') {
+            return res.status(400).json({ 
+                success: false, 
+                error: '请提供有效的密码' 
+            });
+        }
+
+        // 3. 获取客户端IP
+        const clientIp = req.headers['x-forwarded-for'] || 
+                         req.connection.remoteAddress || 
+                         'unknown';
+
+        // 4. 检查IP锁定状态
         const { data: existingRecord } = await supabase
             .from('login_attempts')
             .select('failed_attempts, locked_until')
             .eq('ip_address', clientIp)
             .single()
-            .catch(() => ({ data: null })); // 没有记录时返回null
+            .catch(() => ({ data: null }));
 
-        // 检查锁定状态（当前时间是否在锁定时间之前）
+        // 处理锁定逻辑
         if (existingRecord && existingRecord.locked_until) {
             const now = new Date();
             const lockedUntil = new Date(existingRecord.locked_until);
@@ -42,6 +61,7 @@ export default async function handler(req, res) {
             if (now < lockedUntil) {
                 const minutesLeft = Math.ceil((lockedUntil - now) / (60 * 1000));
                 return res.status(423).json({ 
+                    success: false, 
                     error: `账户已锁定，请${minutesLeft}分钟后再试`,
                     locked: true,
                     minutesLeft
@@ -49,9 +69,9 @@ export default async function handler(req, res) {
             }
         }
 
-        // 2. 验证密码
+        // 5. 验证密码
         if (password === validPassword) {
-            // 密码正确：重置错误次数和锁定状态
+            // 密码正确：重置错误次数
             if (existingRecord) {
                 await supabase
                     .from('login_attempts')
@@ -63,18 +83,21 @@ export default async function handler(req, res) {
                     .eq('ip_address', clientIp);
             }
             
-            return res.status(200).json({ success: true });
+            // 必须返回JSON响应
+            return res.status(200).json({ 
+                success: true, 
+                message: '验证成功' 
+            });
         } else {
-            // 密码错误：更新错误次数，达到3次则锁定1小时
+            // 密码错误：更新错误次数
             const failedAttempts = (existingRecord?.failed_attempts || 0) + 1;
             let lockedUntil = null;
             
             if (failedAttempts >= 3) {
-                // 锁定1小时
-                lockedUntil = new Date(Date.now() + 60 * 60 * 1000);
+                lockedUntil = new Date(Date.now() + 60 * 60 * 1000); // 锁定1小时
             }
 
-            // 插入或更新记录
+            // 更新记录
             if (existingRecord) {
                 await supabase
                     .from('login_attempts')
@@ -95,21 +118,24 @@ export default async function handler(req, res) {
             }
 
             // 返回错误信息
-            if (failedAttempts >= 3) {
-                return res.status(423).json({ 
-                    error: '连续3次密码错误，账户已锁定1小时',
-                    locked: true,
-                    minutesLeft: 60
-                });
-            } else {
-                return res.status(401).json({ 
-                    error: '密码错误',
-                    remainingAttempts: 3 - failedAttempts
-                });
-            }
+            const errorMsg = failedAttempts >= 3 
+                ? '连续3次密码错误，账户已锁定1小时' 
+                : `密码错误，还剩${3 - failedAttempts}次尝试机会`;
+                
+            return res.status(failedAttempts >= 3 ? 423 : 401).json({ 
+                success: false, 
+                error: errorMsg,
+                remainingAttempts: failedAttempts >= 3 ? 0 : 3 - failedAttempts,
+                locked: failedAttempts >= 3
+            });
         }
+
     } catch (error) {
-        console.error('Supabase操作错误:', error);
-        return res.status(500).json({ error: '服务器验证失败' });
+        console.error('验证API错误:', error);
+        // 确保异常情况下也返回响应
+        return res.status(500).json({ 
+            success: false, 
+            error: '服务器验证过程出错，请稍后再试' 
+        });
     }
-}
+};
