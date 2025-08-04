@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>密码验证</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 350px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 1.5rem;
+            font-size: 1.8rem;
+        }
+        
+        #password-input {
+            padding: 12px;
+            width: 100%;
+            margin-bottom: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        
+        .remember-options {
+            margin: 1.5rem 0;
+            text-align: left;
+        }
+        
+        .remember-options label {
+            display: block;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .remember-options input[type="radio"] {
+            position: absolute;
+            left: 0;
+            top: 3px;
+        }
+        
+        #submit-password {
+            padding: 12px 24px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+            margin-top: 1rem;
+        }
+        
+        #submit-password:hover {
+            background-color: #45a049;
+        }
+        
+        .error-message {
+            color: #ff0000;
+            margin-top: 1rem;
+            display: none;
+            padding: 0.5rem;
+            background-color: #ffebee;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>请输入访问密码</h1>
+        <input type="password" id="password-input" placeholder="输入密码">
+        <div class="remember-options">
+            <label>
+                <input type="radio" name="remember" value="0" checked> 不记住密码（本次会话）
+            </label>
+            <label>
+                <input type="radio" name="remember" value="1"> 记住1天
+            </label>
+            <label>
+                <input type="radio" name="remember" value="3"> 记住3天
+            </label>
+            <label>
+                <input type="radio" name="remember" value="7"> 记住7天
+            </label>
+        </div>
+        <button id="submit-password">验证</button>
+        <div class="error-message" id="error-message">密码错误，请重新输入</div>
+    </div>
+
+    <script>
+        // 从URL获取主域名参数
+        function getMainDomain() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('domain');
+        }
+
+        // 获取用户选择的有效期天数
+        function getExpirationDays() {
+            const selectedOption = document.querySelector('input[name="remember"]:checked');
+            return parseInt(selectedOption.value, 10);
+        }
+
+        // 设置主域名的验证cookie
+        function setVerificationCookie(mainDomain) {
+            const days = getExpirationDays();
+            const expirationDate = new Date();
+            
+            if (days > 0) {
+                expirationDate.setDate(expirationDate.getDate() + days);
+            } else {
+                // 不记住密码 - 会话cookie，关闭浏览器后失效
+                expirationDate.setTime(expirationDate.getTime() + (365 * 24 * 60 * 60 * 1000)); // 临时设置一个长有效期
+                // 实际会话cookie不需要设置expires，这里会在下面处理
+            }
+            
+            // 构建cookie参数
+            let cookieParts = [`verified=ok; domain=${mainDomain}; path=/; SameSite=Lax`];
+            
+            // 只有选择了记住密码才添加过期时间
+            if (days > 0) {
+                cookieParts.push(`expires=${expirationDate.toUTCString()}`);
+            }
+            
+            // 添加Secure标记（如果是HTTPS）
+            if (window.location.protocol === 'https:') {
+                cookieParts.push('Secure');
+            }
+            
+            document.cookie = cookieParts.join('; ');
+        }
+
+        // 验证密码
+        async function verifyPassword(password) {
+            try {
+                const password = process.env.PASSWORD;
+                
+                const data = await response.json();
+                const validPassword = data.password;
+                
+                return password === validPassword;
+            } catch (error) {
+                console.error('验证过程出错:', error);
+                document.getElementById('error-message').textContent = '验证服务出错，请稍后再试';
+                document.getElementById('error-message').style.display = 'block';
+                return false;
+            }
+        }
+
+        // 处理密码提交
+        document.getElementById('submit-password').addEventListener('click', async function() {
+            const password = document.getElementById('password-input').value;
+            const mainDomain = getMainDomain();
+            const errorMessage = document.getElementById('error-message');
+            
+            errorMessage.style.display = 'none';
+            
+            if (!password) {
+                errorMessage.textContent = '请输入密码';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            if (!mainDomain) {
+                errorMessage.textContent = '验证失败：无法获取主域名';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            // 验证密码
+            const isPasswordValid = await verifyPassword(password);
+            
+            if (isPasswordValid) {
+                setVerificationCookie(mainDomain);
+                // 延迟关闭，确保cookie已设置
+                setTimeout(() => {
+                    window.close();
+                }, 500);
+            } else {
+                errorMessage.textContent = '密码错误，请重新输入';
+                errorMessage.style.display = 'block';
+                // 清空输入框
+                document.getElementById('password-input').value = "";
+            }
+        });
+
+        // 支持回车键提交
+        document.getElementById('password-input').addEventListener('keyup', function(event) {
+            if (event.key === 'Enter') {
+                document.getElementById('submit-password').click();
+            }
+        });
+    </script>
+</body>
+</html>
+    
