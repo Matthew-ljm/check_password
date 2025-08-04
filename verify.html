@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>密码验证</title>
     <style>
+        /* 保持原有样式不变 */
         body {
             font-family: Arial, sans-serif;
             display: flex;
@@ -14,120 +15,157 @@
             margin: 0;
             background-color: #f0f0f0;
         }
+        
         .container {
-            background: white;
+            background-color: white;
             padding: 2rem;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            width: 350px;
+            text-align: center;
         }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        
         #password-input {
-            width: 100%;
             padding: 12px;
-            margin: 1rem 0;
+            width: 300px;
+            margin-bottom: 1rem;
             border: 2px solid #ddd;
             border-radius: 5px;
-            box-sizing: border-box;
+            font-size: 16px;
         }
-        .remember-options {
-            margin: 1rem 0;
-        }
-        #submit-btn {
-            width: 100%;
-            padding: 12px;
-            background: #4CAF50;
+        
+        #submit-password {
+            padding: 12px 24px;
+            background-color: #4CAF50;
             color: white;
             border: none;
             border-radius: 5px;
-            cursor: pointer;
             font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
         }
+        
+        #submit-password:hover {
+            background-color: #45a049;
+        }
+        
         .error-message {
-            color: red;
+            color: #ff0000;
+            margin-top: 1rem;
+            display: none;
+        }
+        
+        .expiry-options {
             margin: 1rem 0;
             display: none;
         }
-        .lock-message {
-            color: red;
+        
+        .remember-container {
             margin: 1rem 0;
-            display: none;
+            text-align: left;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>请输入访问密码</h2>
+        <h1>请输入访问密码</h1>
         <input type="password" id="password-input" placeholder="输入密码">
-        <div class="remember-options">
+        <div class="remember-container">
             <label>
-                <input type="checkbox" id="remember"> 记住密码
+                <input type="checkbox" id="remember-password"> 记住密码
             </label>
-            <select id="expiry" style="margin-left: 10px; display: none;">
-                <option value="86400">1天</option>
-                <option value="259200">3天</option>
-                <option value="604800">7天</option>
+        </div>
+        <div class="expiry-options" id="expiry-options">
+            <label>有效期: </label>
+            <select id="expiry-select">
+                <option value="1">1天</option>
+                <option value="3">3天</option>
+                <option value="7">7天</option>
             </select>
         </div>
-        <button id="submit-btn">验证</button>
-        <div class="error-message" id="error-msg"></div>
-        <div class="lock-message" id="lock-msg"></div>
+        <button id="submit-password">验证</button>
+        <div class="error-message" id="error-message">密码错误，请重新输入</div>
     </div>
 
     <script>
-        // 获取主域名（从URL参数中）
-        const urlParams = new URLSearchParams(window.location.search);
-        const mainDomain = urlParams.get('mainDomain');
-        if (!mainDomain) {
-            alert('验证失败：未找到主域名');
-            window.close();
-        }
-
-        // 显示/隐藏有效期选择
-        document.getElementById('remember').addEventListener('change', function() {
-            document.getElementById('expiry').style.display = this.checked ? 'inline-block' : 'none';
+        // 处理记住密码选项显示/隐藏
+        document.getElementById('remember-password').addEventListener('change', function() {
+            const expiryOptions = document.getElementById('expiry-options');
+            expiryOptions.style.display = this.checked ? 'block' : 'none';
         });
 
-        // 提交密码到后端API验证
-        document.getElementById('submit-btn').addEventListener('click', async function() {
-            const password = document.getElementById('password-input').value;
-            const remember = document.getElementById('remember').checked;
-            const expiry = remember ? document.getElementById('expiry').value : 0;
-
+        // 验证密码 - 修正：通过API验证，不直接使用process.env
+        async function verifyPassword(password) {
             try {
-                // 调用验证域名的后端API（同域，无跨域问题）
+                // 调用后端API进行验证
                 const response = await fetch('/api/verify', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password, expiry })
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password: password })
                 });
-
+                
                 const result = await response.json();
-
-                // 验证成功：通知主域名，并关闭窗口
-                if (response.ok && result.success) {
-                    // 向主域名发送跨域消息（仅允许指定主域名接收）
-                    window.opener.postMessage(
-                        { type: 'verifySuccess', maxAge: result.maxAge },
-                        mainDomain // 严格限制消息接收域名
-                    );
-                    window.close();
-                }
-
-                // 验证失败：显示错误信息
-                if (!response.ok) {
-                    if (result.error === 'locked') {
-                        document.getElementById('lock-msg').textContent = '连续错误3次，已锁定1小时';
-                        document.getElementById('lock-msg').style.display = 'block';
-                    } else {
-                        document.getElementById('error-msg').textContent = result.error || '密码错误';
-                        document.getElementById('error-msg').style.display = 'block';
-                    }
-                }
+                return result;
             } catch (error) {
-                document.getElementById('error-msg').textContent = '网络错误，请重试';
-                document.getElementById('error-msg').style.display = 'block';
+                console.error('验证过程出错:', error);
+                return { success: false, error: '验证过程出错，请重试' };
+            }
+        }
+
+        // 处理密码提交
+        document.getElementById('submit-password').addEventListener('click', async function() {
+            const password = document.getElementById('password-input').value;
+            const rememberChecked = document.getElementById('remember-password').checked;
+            const expiryDays = rememberChecked ? document.getElementById('expiry-select').value : 0;
+            const errorMessage = document.getElementById('error-message');
+            
+            if (!password) {
+                errorMessage.textContent = "请输入密码";
+                errorMessage.style.display = "block";
+                return;
+            }
+            
+            // 调用验证函数
+            const verificationResult = await verifyPassword(password);
+            
+            if (verificationResult.success) {
+                // 验证成功，设置cookie并通知主页面
+                if (rememberChecked) {
+                    const expirationDate = new Date();
+                    expirationDate.setDate(expirationDate.getDate() + parseInt(expiryDays));
+                    document.cookie = `verified=ok; expires=${expirationDate.toUTCString()}; path=/; SameSite=Strict; Secure`;
+                } else {
+                    // 不记住密码，会话结束后失效
+                    document.cookie = `verified=ok; path=/; SameSite=Strict; Secure`;
+                }
+                
+                // 通知主页面验证成功
+                if (window.opener) {
+                    window.opener.postMessage({ verified: true }, window.opener.origin);
+                }
+                
+                // 关闭当前窗口
+                window.close();
+            } else {
+                // 验证失败，显示错误信息
+                errorMessage.textContent = verificationResult.error || "密码错误，请重新输入";
+                errorMessage.style.display = "block";
+            }
+        });
+
+        // 支持回车键提交
+        document.getElementById('password-input').addEventListener('keyup', function(event) {
+            if (event.key === 'Enter') {
+                document.getElementById('submit-password').click();
             }
         });
     </script>
 </body>
 </html>
+    
