@@ -121,7 +121,6 @@
             return parseInt(selectedOption.value, 10);
         }
 
-        // 设置主域名的验证cookie
         function setVerificationCookie(mainDomain) {
             const days = getExpirationDays();
             const expirationDate = new Date();
@@ -177,12 +176,6 @@
             
             if (!password) {
                 errorMessage.textContent = '请输入密码';
-                errorMessage.style.display = 'block';
-                return;
-            }
-            
-            if (!mainDomain) {
-                errorMessage.textContent = '验证失败：无法获取主域名';
                 errorMessage.style.display = 'block';
                 return;
             }
