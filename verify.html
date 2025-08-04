@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>密码验证</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 350px;
+        }
+        #password-input {
+            width: 100%;
+            padding: 12px;
+            margin: 1rem 0;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .remember-options {
+            margin: 1rem 0;
+        }
+        #submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .error-message {
+            color: red;
+            margin: 1rem 0;
+            display: none;
+        }
+        .lock-message {
+            color: red;
+            margin: 1rem 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>请输入访问密码</h2>
+        <input type="password" id="password-input" placeholder="输入密码">
+        <div class="remember-options">
+            <label>
+                <input type="checkbox" id="remember"> 记住密码
+            </label>
+            <select id="expiry" style="margin-left: 10px; display: none;">
+                <option value="86400">1天</option>
+                <option value="259200">3天</option>
+                <option value="604800">7天</option>
+            </select>
+        </div>
+        <button id="submit-btn">验证</button>
+        <div class="error-message" id="error-msg"></div>
+        <div class="lock-message" id="lock-msg"></div>
+    </div>
+
+    <script>
+        // 获取主域名（从URL参数中）
+        const urlParams = new URLSearchParams(window.location.search);
+        const mainDomain = urlParams.get('mainDomain');
+        if (!mainDomain) {
+            alert('验证失败：未找到主域名');
+            window.close();
+        }
+
+        // 显示/隐藏有效期选择
+        document.getElementById('remember').addEventListener('change', function() {
+            document.getElementById('expiry').style.display = this.checked ? 'inline-block' : 'none';
+        });
+
+        // 提交密码到后端API验证
+        document.getElementById('submit-btn').addEventListener('click', async function() {
+            const password = document.getElementById('password-input').value;
+            const remember = document.getElementById('remember').checked;
+            const expiry = remember ? document.getElementById('expiry').value : 0;
+
+            try {
+                // 调用验证域名的后端API（同域，无跨域问题）
+                const response = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, expiry })
+                });
+
+                const result = await response.json();
+
+                // 验证成功：通知主域名，并关闭窗口
+                if (response.ok && result.success) {
+                    // 向主域名发送跨域消息（仅允许指定主域名接收）
+                    window.opener.postMessage(
+                        { type: 'verifySuccess', maxAge: result.maxAge },
+                        mainDomain // 严格限制消息接收域名
+                    );
+                    window.close();
+                }
+
+                // 验证失败：显示错误信息
+                if (!response.ok) {
+                    if (result.error === 'locked') {
+                        document.getElementById('lock-msg').textContent = '连续错误3次，已锁定1小时';
+                        document.getElementById('lock-msg').style.display = 'block';
+                    } else {
+                        document.getElementById('error-msg').textContent = result.error || '密码错误';
+                        document.getElementById('error-msg').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                document.getElementById('error-msg').textContent = '网络错误，请重试';
+                document.getElementById('error-msg').style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
