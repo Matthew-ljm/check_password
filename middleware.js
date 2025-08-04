@@ -1,6 +1,10 @@
-<export default async function middleware(request) {
+// 修正语法错误，移除多余的default关键字
+export default async function middleware(request) {
+    // 解析URL获取路径
+    const url = new URL(request.url);
+    
     // 仅对验证API生效
-    if (request.url.pathname !== '/api/verify') {
+    if (url.pathname !== '/api/verify') {
         return new Response(null, { status: 200 });
     }
 
@@ -15,10 +19,20 @@
 
     // 从Cookie获取IP的请求记录
     const cacheKey = `rate_limit_${ip}`;
-    const cached = request.headers.get('cookie')?.split(';')
-        .find(c => c.trim().startsWith(`${cacheKey}=`))
-        ?.split('=')[1];
-        
+    let cached = null;
+    const cookieHeader = request.headers.get('cookie');
+    
+    if (cookieHeader) {
+        const cookies = cookieHeader.split(';');
+        for (const cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === cacheKey) {
+                cached = value;
+                break;
+            }
+        }
+    }
+    
     const requests = cached ? JSON.parse(decodeURIComponent(cached)) : [];
 
     // 过滤过期记录
@@ -30,7 +44,10 @@
             JSON.stringify({ error: '请求过于频繁，请1小时后再试' }),
             { 
                 status: 429,
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-store'
+                }
             }
         );
     }
